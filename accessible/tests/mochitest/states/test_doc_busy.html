@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>states of document</title>
+  <link rel="stylesheet" type="text/css"
+        href="chrome://mochikit/content/tests/SimpleTest/test.css" />
+
+  <script src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"></script>
+  <script src="chrome://mochikit/content/tests/SimpleTest/EventUtils.js"></script>
+
+  <script type="application/javascript"
+          src="../common.js"></script>
+  <script type="application/javascript"
+          src="../role.js"></script>
+  <script type="application/javascript"
+          src="../states.js"></script>
+  <script type="application/javascript"
+          src="../promisified-events.js"></script>
+
+  <script type="application/javascript">
+    const { BrowserTestUtils } = ChromeUtils.import(
+      "resource://testing-common/BrowserTestUtils.jsm");
+
+    function matchDocBusyChange(isBusy) {
+      return function(event) {
+        const scEvent = event.QueryInterface(nsIAccessibleStateChangeEvent);
+        return (
+          event.DOMNode == document &&
+          scEvent.state === STATE_BUSY &&
+          scEvent.isEnabled === isBusy
+        );
+      };
+    }
+
+    async function doTest() {
+      EventsLogger.enabled = true;
+      const busyEvents = waitForOrderedEvents([
+        [EVENT_STATE_CHANGE, matchDocBusyChange(true)],
+        [EVENT_STATE_CHANGE, matchDocBusyChange(false)]
+      ]);
+      const downloadPromptOpened = BrowserTestUtils.domWindowOpened(null,
+        async win => {
+          info("Window opened, waiting for load event");
+          await BrowserTestUtils.waitForEvent(win, "load");
+          if (win.location && win.location.href == "about:blank") {
+            info("Loaded about:blank, waiting for real load event");
+            await BrowserTestUtils.waitForEvent(win, "load");
+          }
+          info("Window loaded, checking if download prompt");
+          info("Location: " + win.location);
+          return win.location &&
+            win.location.href == "chrome://mozapps/content/downloads/unknownContentType.xhtml";
+        }
+      );
+      info("Clicking link to trigger download");
+      synthesizeMouse(getNode("link"), 1, 1, {});
+      info("Waiting for a11y busy events");
+      await busyEvents;
+      EventsLogger.enabled = false;
+
+      info("Waiting for download prompt to open");
+      const downloadWin = await downloadPromptOpened;
+      info("Closing download prompt");
+      downloadWin.close();
+
+      SimpleTest.finish();
+    }
+
+    SimpleTest.waitForExplicitFinish();
+    addA11yLoadEvent(doTest);
+  </script>
+</head>
+
+<body>
+
+  <a target="_blank"
+     title="Missing busy state change event when downloading files"
+     href="https://bugzilla.mozilla.org/show_bug.cgi?id=446469">Bug 446469</a>
+
+  <p id="display"></p>
+  <div id="content" style="display: none"></div>
+  <pre id="test">
+  </pre>
+
+  <a id="link" href="http://example.com/a11y/accessible/tests/mochitest/dumbfile.zip">a file</a>
+</body>
+</html>
